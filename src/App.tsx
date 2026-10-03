@@ -288,10 +288,10 @@ function VidoCutApp() {
     return null;
   };
 
-  const handleTimelineScrub = (e: React.MouseEvent<HTMLDivElement>) => {
+  const scrubToClientX = (clientX: number) => {
     if (!timelineRef.current) return;
     const rect = timelineRef.current.getBoundingClientRect();
-    const x = Math.max(0, e.clientX - rect.left + timelineRef.current.scrollLeft);
+    const x = Math.max(0, clientX - rect.left + timelineRef.current.scrollLeft);
     const targetGlobalTime = Math.max(0, Math.min(x / zoom, totalDuration));
     
     const clipInfo = getClipAtTime(targetGlobalTime);
@@ -304,6 +304,19 @@ function VidoCutApp() {
       }
     }
     setCurrentTime(targetGlobalTime);
+  };
+
+  // Pointer events (mouse, touch, pen) with capture: tap or drag on the ruler or
+  // the playhead handle to scrub. touch-action:none on those elements stops the
+  // browser from turning the drag into a timeline scroll.
+  const scrubPointerHandlers = {
+    onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      scrubToClientX(e.clientX);
+    },
+    onPointerMove: (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) scrubToClientX(e.clientX);
+    },
   };
 
   const [activeTab, setActiveTab] = useState<'trim' | 'voice' | 'subtitles' | 'watermark'>('trim');
@@ -2535,8 +2548,8 @@ function VidoCutApp() {
                   
                   {/* Dynamic Ruler Row */}
                   <div 
-                    className="h-8 bg-black/45 border-b border-white/10 relative cursor-pointer"
-                    onClick={handleTimelineScrub}
+                    className="h-10 md:h-8 bg-black/45 border-b border-white/10 relative cursor-pointer touch-none"
+                    {...scrubPointerHandlers}
                   >
                     {(() => {
                       const getRulerConfig = (z: number) => {
@@ -2900,6 +2913,13 @@ function VidoCutApp() {
                   >
                     {/* Tick Handle */}
                     <div className="absolute top-0 -left-1.5 w-3.5 h-3.5 bg-red-500 rounded-b-full shadow border border-white/50" />
+                    {/* Grab area: 44px wide so a thumb can catch the line; covers the ruler only,
+                        so clips below stay tappable. */}
+                    <div
+                      className="absolute top-0 -left-[21px] w-11 h-10 md:h-8 pointer-events-auto cursor-ew-resize touch-none"
+                      aria-label="Drag playhead"
+                      {...scrubPointerHandlers}
+                    />
                   </div>
 
                 </div>
