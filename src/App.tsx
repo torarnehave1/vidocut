@@ -3,7 +3,7 @@ import {
   Play, Pause, Square, RotateCcw, SkipBack, Scissors, Mic, Type, Download,
   Trash2, Plus, Volume2, VolumeX, Music, Wand2, Upload, ChevronRight,
   ChevronLeft, X, Save, Image as ImageIcon, GripVertical, ZoomIn, ZoomOut, Maximize2,
-  Copy, AlignLeft, AlignCenter, AlignRight, Sliders, Sparkles, FolderDown, FolderUp, FolderOpen
+  Copy, AlignLeft, AlignCenter, AlignRight, Sliders, Sparkles, FolderDown, FolderUp, FolderOpen, MoreHorizontal
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { get, set } from 'idb-keyval';
@@ -13,7 +13,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { Login } from './components/Login';
 import { readStoredUser, type AuthUser } from './lib/auth';
-import { loadFFmpeg, writeFrame, writeAudioInput, deleteFile, buildFfmpegCommand, runEncode, readOutput, encodePassthroughVideoSegment, encodePassthroughImageSegment, concatSegments, encodeOverlayPass, type AudioInput } from './lib/ffmpegExport';
+import { loadFFmpeg, writeFrame, writeAudioInput, hasAudioStream, deleteFile, buildFfmpegCommand, runEncode, readOutput, encodePassthroughVideoSegment, encodePassthroughImageSegment, concatSegments, encodeOverlayPass, type AudioInput } from './lib/ffmpegExport';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -307,6 +307,10 @@ function VidoCutApp() {
   };
 
   const [activeTab, setActiveTab] = useState<'trim' | 'voice' | 'subtitles' | 'watermark'>('trim');
+  // Phone layout only (below md): the contextual panel is a bottom sheet, and
+  // the secondary header actions live in an overflow menu.
+  const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showSubtitles, setShowSubtitles] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
   const [aiText, setAiText] = useState('');
@@ -1361,6 +1365,12 @@ function VidoCutApp() {
         const inputName = `clip_audio_${audioIdx}`;
         try {
           await writeAudioInput(inputName, source);
+          // A silent source has no audio stream; mapping [n:a] to it fails the
+          // whole mux, so skip the track instead.
+          if (!(await hasAudioStream(inputName))) {
+            await deleteFile(inputName);
+            continue;
+          }
           audioInputs.push({
             inputName,
             startSec: getClipGlobalStart(clip.id),
@@ -1850,8 +1860,8 @@ function VidoCutApp() {
   return (
     <div className="h-screen max-h-screen flex flex-col bg-bg overflow-hidden select-none">
       {/* Header */}
-      <header className="h-16 border-b border-border flex items-center justify-between px-6 glass z-10">
-        <div className="flex items-center gap-3">
+      <header className="h-14 md:h-16 border-b border-border flex items-center justify-between px-3 md:px-6 glass z-10 relative">
+        <div className="flex items-center gap-2 md:gap-3 min-w-0">
           <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center bg-white/5 border border-white/10 shrink-0">
             <img 
               src="https://favicons.vegvisr.org/favicons/1782026007878-1-1782026040233-180x180.png" 
@@ -1866,16 +1876,16 @@ function VidoCutApp() {
           </span>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3">
           {projectMessage && (
-            <div className="px-3 py-1 bg-accent/20 border border-accent/40 rounded-full text-xs font-semibold text-accent animate-pulse flex items-center gap-1.5">
+            <div className="hidden md:flex px-3 py-1 bg-accent/20 border border-accent/40 rounded-full text-xs font-semibold text-accent animate-pulse items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5" />
               <span>{projectMessage}</span>
             </div>
           )}
 
           {isExporting && (
-            <div className="flex flex-col items-end gap-1">
+            <div className="hidden md:flex flex-col items-end gap-1">
               <div className="flex items-center gap-3 px-4 py-1.5 bg-white/5 rounded-full border border-white/10">
                 <span className="text-[9px] font-bold text-accent/60 uppercase tracking-widest">Recording</span>
                 <div className="w-20 h-1.5 bg-white/10 rounded-full overflow-hidden">
@@ -1893,7 +1903,7 @@ function VidoCutApp() {
           {/* Project File Actions */}
           <button
             onClick={() => projectFileInputRef.current?.click()}
-            className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-xs font-semibold text-slate-300 hover:text-white flex items-center gap-1.5 transition-all"
+            className="hidden md:flex px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-xs font-semibold text-slate-300 hover:text-white items-center gap-1.5 transition-all"
             title="Open a saved .vidocut project file"
           >
             <FolderOpen className="w-3.5 h-3.5 text-amber-400" />
@@ -1903,7 +1913,7 @@ function VidoCutApp() {
           <button
             onClick={handleSaveProjectFile}
             disabled={isSavingProject}
-            className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-xs font-semibold text-slate-300 hover:text-white flex items-center gap-1.5 transition-all disabled:opacity-50"
+            className="hidden md:flex px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-xs font-semibold text-slate-300 hover:text-white items-center gap-1.5 transition-all disabled:opacity-50"
             title="Save project state to a .vidocut file on your computer"
           >
             <FolderDown className="w-3.5 h-3.5 text-accent" />
@@ -1912,7 +1922,7 @@ function VidoCutApp() {
 
           <button 
             onClick={() => window.location.reload()}
-            className="p-2 hover:bg-white/10 rounded-full transition-colors text-slate-400 hover:text-white"
+            className="hidden md:block p-2 hover:bg-white/10 rounded-full transition-colors text-slate-400 hover:text-white"
             title="Reset Workspace"
           >
             <X className="w-4 h-4" />
@@ -1921,15 +1931,54 @@ function VidoCutApp() {
           <button 
             onClick={handleExport}
             disabled={isExporting}
-            className="bg-accent hover:bg-accent-hover disabled:opacity-50 text-white px-4 py-2 rounded-full flex items-center gap-2 text-sm font-medium transition-all shadow-md shadow-accent/20"
+            className="bg-accent hover:bg-accent-hover disabled:opacity-50 text-white px-4 h-11 md:h-auto md:py-2 rounded-full flex items-center gap-2 text-sm font-medium transition-all shadow-md shadow-accent/20"
           >
             {isExporting ? (
               <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             ) : (
               <Download className="w-4 h-4" />
             )}
-            {isExporting ? 'Exporting...' : 'Export Video'}
+            <span className="md:hidden">{isExporting ? `${Math.round(exportProgress)}%` : 'Export'}</span>
+            <span className="hidden md:inline">{isExporting ? 'Exporting...' : 'Export Video'}</span>
           </button>
+
+          {/* Phone-only overflow menu: the actions hidden from the header above */}
+          <div className="md:hidden">
+            <button
+              onClick={() => setMobileMenuOpen(o => !o)}
+              aria-label="More actions"
+              aria-expanded={mobileMenuOpen}
+              className="w-11 h-11 rounded-xl flex items-center justify-center text-slate-300 hover:bg-white/10"
+            >
+              <MoreHorizontal className="w-5 h-5" />
+            </button>
+            {mobileMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setMobileMenuOpen(false)} />
+                <div className="absolute right-3 top-14 z-50 w-56 rounded-2xl border border-border bg-bg shadow-2xl p-1.5 flex flex-col">
+                  <button
+                    onClick={() => { setMobileMenuOpen(false); projectFileInputRef.current?.click(); }}
+                    className="h-12 px-3 rounded-xl flex items-center gap-3 text-sm font-medium text-slate-200 hover:bg-white/10"
+                  >
+                    <FolderOpen className="w-4 h-4 text-amber-400" /> Open Project
+                  </button>
+                  <button
+                    onClick={() => { setMobileMenuOpen(false); handleSaveProjectFile(); }}
+                    disabled={isSavingProject}
+                    className="h-12 px-3 rounded-xl flex items-center gap-3 text-sm font-medium text-slate-200 hover:bg-white/10 disabled:opacity-50"
+                  >
+                    <FolderDown className="w-4 h-4 text-accent" /> {isSavingProject ? 'Saving...' : 'Save Project'}
+                  </button>
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="h-12 px-3 rounded-xl flex items-center gap-3 text-sm font-medium text-red-300 hover:bg-white/10"
+                  >
+                    <X className="w-4 h-4" /> Reset Workspace
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
 
           <input 
             type="file" 
@@ -1951,30 +2000,30 @@ function VidoCutApp() {
         className="hidden" 
       />
 
-      <main className="flex-1 flex overflow-hidden">
+      <main className="flex-1 flex flex-col md:flex-row overflow-hidden">
         {/* Left Sidebar: Tools */}
-        <aside className="w-16 border-r border-border flex flex-col items-center py-6 gap-6 glass">
+        <aside className="order-last md:order-first w-full md:w-16 h-[72px] md:h-auto shrink-0 border-t md:border-t-0 md:border-r border-border flex flex-row md:flex-col items-center justify-around md:justify-start py-1 md:py-6 gap-0 md:gap-6 glass pb-[env(safe-area-inset-bottom)] relative z-[35]" role="tablist">
           <ToolButton 
             active={activeTab === 'trim'} 
-            onClick={() => setActiveTab('trim')}
+            onClick={() => { setMobileSheetOpen(activeTab === 'trim' ? !mobileSheetOpen : true); setActiveTab('trim'); }}
             icon={<Scissors className="w-5 h-5" />}
             label="Trim"
           />
           <ToolButton 
             active={activeTab === 'voice'} 
-            onClick={() => setActiveTab('voice')}
+            onClick={() => { setMobileSheetOpen(activeTab === 'voice' ? !mobileSheetOpen : true); setActiveTab('voice'); }}
             icon={<Mic className="w-5 h-5" />}
             label="Voice"
           />
           <ToolButton 
             active={activeTab === 'subtitles'} 
-            onClick={() => setActiveTab('subtitles')}
+            onClick={() => { setMobileSheetOpen(activeTab === 'subtitles' ? !mobileSheetOpen : true); setActiveTab('subtitles'); }}
             icon={<Type className="w-5 h-5" />}
             label="Text"
           />
           <ToolButton 
             active={activeTab === 'watermark'} 
-            onClick={() => setActiveTab('watermark')}
+            onClick={() => { setMobileSheetOpen(activeTab === 'watermark' ? !mobileSheetOpen : true); setActiveTab('watermark'); }}
             icon={<ImageIcon className="w-5 h-5" />}
             label="Logo"
           />
@@ -2187,14 +2236,14 @@ function VidoCutApp() {
           </div>
 
           {/* Timeline and Composition Layers */}
-          <div className="h-[280px] shrink-0 glass border-t border-border flex flex-col overflow-hidden">
+          <div className="h-[340px] md:h-[280px] shrink-0 glass border-t border-border flex flex-col overflow-hidden">
             {/* Timeline Toolbar */}
-            <div className="h-12 border-b border-border bg-black/30 flex items-center justify-between px-6 shrink-0 select-none">
-              <div className="flex items-center gap-4">
+            <div className="min-h-12 md:h-12 border-b border-border bg-black/30 flex flex-wrap md:flex-nowrap items-center justify-between gap-y-1 px-2 md:px-6 py-1 md:py-0 shrink-0 select-none">
+              <div className="flex items-center gap-1 md:gap-4">
                 <div className="flex items-center gap-1.5">
                   <button 
                     onClick={togglePlay}
-                    className="w-8 h-8 bg-white text-black rounded-full flex items-center justify-center hover:scale-105 transition-transform shadow"
+                    className="w-11 h-11 md:w-8 md:h-8 bg-white text-black rounded-full flex items-center justify-center hover:scale-105 transition-transform shadow"
                     title={isPlaying ? "Pause Playback (Space)" : "Play (Space)"}
                   >
                     {isPlaying ? <Pause className="w-4 h-4 fill-black" /> : <Play className="w-4 h-4 fill-black ml-0.5" />}
@@ -2202,7 +2251,7 @@ function VidoCutApp() {
 
                   <button 
                     onClick={handleStop}
-                    className="w-8 h-8 bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 rounded-full flex items-center justify-center transition-all"
+                    className="w-11 h-11 md:w-8 md:h-8 bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 rounded-full flex items-center justify-center transition-all"
                     title="Stop Playback & Reset (Esc)"
                   >
                     <Square className="w-3.5 h-3.5 fill-red-400" />
@@ -2220,7 +2269,7 @@ function VidoCutApp() {
                         }
                       }
                     }}
-                    className="w-8 h-8 bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 rounded-full flex items-center justify-center transition-all"
+                    className="w-11 h-11 md:w-8 md:h-8 bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 rounded-full flex items-center justify-center transition-all"
                     title="Rewind to Start"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
@@ -2230,17 +2279,17 @@ function VidoCutApp() {
                 <button 
                   onClick={handleSplitClip}
                   disabled={!selectedClip}
-                  className="h-8 px-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg flex items-center gap-1.5 text-xs font-semibold text-slate-200 transition-colors disabled:opacity-40"
+                  className="h-11 md:h-8 px-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg flex items-center gap-1.5 text-xs font-semibold text-slate-200 transition-colors disabled:opacity-40 whitespace-nowrap"
                   title="Split selected clip at current playhead position"
                 >
                   <Scissors className="w-3.5 h-3.5 text-accent" />
-                  <span>Split Clip</span>
+                  <span className="max-md:hidden">Split Clip</span><span className="md:hidden">Split</span>
                 </button>
               </div>
 
               {/* Time displays & Zoom */}
-              <div className="flex items-center gap-3">
-                <div className="text-xs font-mono bg-white/5 border border-white/10 rounded-lg px-2.5 py-1 text-slate-300">
+              <div className="flex items-center gap-2 md:gap-3">
+                <div className="text-xs font-mono bg-white/5 whitespace-nowrap border border-white/10 rounded-lg px-2.5 py-1 text-slate-300">
                   <span className="text-accent font-bold">{formatTime(currentTime)}</span>
                   <span className="text-slate-500 mx-1.5">/</span>
                   <span className="text-slate-400">{formatTime(totalDuration)}</span>
@@ -2251,7 +2300,7 @@ function VidoCutApp() {
                   <span className="text-[10px] font-bold text-slate-400 mr-1 hidden sm:inline">ZOOM</span>
                   <button 
                     onClick={() => setZoom(z => Math.max(1, Math.round(z / 1.3)))}
-                    className="p-0.5 hover:bg-white/10 rounded text-slate-400 hover:text-white transition-colors"
+                    className="max-md:hidden p-0.5 hover:bg-white/10 rounded text-slate-400 hover:text-white transition-colors"
                     title="Zoom Out (Ctrl + Scroll Down)"
                   >
                     <ZoomOut className="w-3.5 h-3.5" />
@@ -2263,23 +2312,23 @@ function VidoCutApp() {
                     step="1"
                     value={zoom}
                     onChange={(e) => setZoom(parseInt(e.target.value) || 1)}
-                    className="w-16 sm:w-24 h-1 bg-white/15 rounded-full appearance-none cursor-pointer accent-accent"
+                    className="max-md:hidden w-16 sm:w-24 h-1 bg-white/15 rounded-full appearance-none cursor-pointer accent-accent"
                     title="Timeline Zoom Level (1px/s to 1000px/s)"
                   />
                   <button 
                     onClick={() => setZoom(z => Math.min(1000, Math.round(z * 1.3)))}
-                    className="p-0.5 hover:bg-white/10 rounded text-slate-400 hover:text-white transition-colors"
+                    className="max-md:hidden p-0.5 hover:bg-white/10 rounded text-slate-400 hover:text-white transition-colors"
                     title="Zoom In (Ctrl + Scroll Up)"
                   >
                     <ZoomIn className="w-3.5 h-3.5" />
                   </button>
-                  <span className="text-[9px] font-mono text-slate-300 min-w-[38px] text-center px-1">
+                  <span className="max-md:hidden text-[9px] font-mono text-slate-300 min-w-[38px] text-center px-1">
                     {zoom}px/s
                   </span>
 
                   <button
                     onClick={handleFitToScreen}
-                    className="px-2 py-0.5 text-[9px] font-bold rounded transition-all bg-accent/20 text-accent hover:bg-accent/30 border border-accent/30 flex items-center gap-1 shadow-sm ml-1"
+                    className="px-2 py-0.5 max-md:h-9 text-[9px] font-bold rounded transition-all bg-accent/20 text-accent hover:bg-accent/30 border border-accent/30 flex items-center gap-1 shadow-sm md:ml-1"
                     title="Fit Entire Video / Recording onto Screen"
                   >
                     <Maximize2 className="w-2.5 h-2.5" />
@@ -2325,7 +2374,7 @@ function VidoCutApp() {
             <div className="flex-1 flex overflow-y-auto select-none custom-scrollbar min-h-0">
               <div className="flex flex-1 min-w-0">
                 {/* Left Column: Track Labels and Actions (fixed width) */}
-                <div className="w-48 bg-black/40 border-r border-border flex flex-col select-none shrink-0">
+                <div className="w-32 md:w-48 bg-black/40 border-r border-border flex flex-col select-none shrink-0">
                 {/* Ruler Track spacer */}
                 <div className="h-8 border-b border-white/10 flex items-center justify-between px-3 bg-white/[0.02] shrink-0">
                   <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold font-mono">Tracks</span>
@@ -2344,7 +2393,7 @@ function VidoCutApp() {
                 <div className="h-12 border-b border-white/5 flex items-center px-3 justify-between bg-yellow-500/[0.01] shrink-0">
                   <div className="flex items-center gap-2">
                     <Type className="w-3.5 h-3.5 text-yellow-500/80" />
-                    <span className="text-xs font-bold text-slate-300">Text Layers</span>
+                    <span className="text-xs font-bold text-slate-300 whitespace-nowrap">Text <span className="max-md:hidden">Layers</span></span>
                   </div>
                   <button
                     onClick={() => addSubtitle()}
@@ -2372,7 +2421,7 @@ function VidoCutApp() {
                       <span className="text-xs font-bold text-slate-300 truncate">
                         {clip.type === 'image' ? 'Image' : 'Video'}-{idx + 1}
                       </span>
-                      <span className="text-[9px] font-mono text-slate-500">
+                      <span className="max-md:hidden text-[9px] font-mono text-slate-500">
                         {clip.type === 'image' ? 'still image' : `${clip.duration.toFixed(1)}s max`}
                       </span>
                     </div>
@@ -2862,15 +2911,38 @@ function VidoCutApp() {
         </section>
 
         {/* Right Sidebar: Contextual Panel */}
-        <aside className="w-80 border-l border-border glass flex flex-col overflow-hidden">
-          <div className="p-6 border-b border-border flex items-center justify-between">
+        {mobileSheetOpen && (
+          <div className="md:hidden fixed inset-0 z-30 bg-black/60" onClick={() => setMobileSheetOpen(false)} />
+        )}
+        <aside
+          role="dialog"
+          aria-label={`${activeTab} settings`}
+          className={cn(
+            "glass flex flex-col overflow-hidden border-border",
+            // Phone: bottom sheet above the tab bar. Desktop: the original right panel.
+            "fixed inset-x-0 bottom-[72px] z-40 h-[65vh] rounded-t-3xl border-t transition-transform duration-200",
+            mobileSheetOpen ? "translate-y-0" : "translate-y-[110%] pointer-events-none invisible",
+            "md:static md:visible md:pointer-events-auto md:translate-y-0 md:h-auto md:w-80 md:rounded-none md:border-t-0 md:border-l"
+          )}
+        >
+          <div className="md:hidden flex justify-center pt-2"><div className="w-10 h-1.5 rounded-full bg-slate-600" /></div>
+          <div className="px-4 md:p-6 py-3 border-b border-border flex items-center justify-between">
             <h2 className="font-bold capitalize">{activeTab}</h2>
-            <div className="text-xs font-mono text-slate-500">
-              {videoState.subtitles.length + videoState.voiceovers.length} Items
+            <div className="flex items-center gap-2">
+              <div className="text-xs font-mono text-slate-500">
+                {videoState.subtitles.length + videoState.voiceovers.length} Items
+              </div>
+              <button
+                onClick={() => setMobileSheetOpen(false)}
+                aria-label="Close panel"
+                className="md:hidden w-11 h-11 -mr-2 rounded-xl flex items-center justify-center text-slate-300 hover:bg-white/10"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar">
             {activeTab === 'trim' && (
               <div className="space-y-6">
                 <div className="space-y-4">
@@ -3751,7 +3823,7 @@ function ToolButton({ active, onClick, icon, label }: { active: boolean, onClick
     <button 
       onClick={onClick}
       className={cn(
-        "flex flex-col items-center gap-1 transition-all group",
+        "flex flex-col items-center justify-center gap-1 transition-all group flex-1 md:flex-none h-full md:h-auto min-h-11",
         active ? "text-accent" : "text-slate-500 hover:text-slate-300"
       )}
     >

@@ -21,6 +21,25 @@ export interface AudioInput {
 const ffmpeg = new FFmpeg();
 let loaded = false;
 
+// Recent ffmpeg stderr lines, so a non-zero exit can say WHY it failed.
+// Capped large enough to hold a full `-i` stream listing for probing.
+const recentLogs: string[] = [];
+ffmpeg.on('log', ({ message }) => {
+  recentLogs.push(message);
+  if (recentLogs.length > 200) recentLogs.shift();
+});
+
+/**
+ * True when the file in the virtual FS has at least one audio stream. Runs
+ * `ffmpeg -i` with no output, which always exits non-zero, so the exit code is
+ * ignored and the stream listing in the log is read instead.
+ */
+export async function hasAudioStream(name: string): Promise<boolean> {
+  recentLogs.length = 0;
+  await ffmpeg.exec(['-i', name, '-hide_banner']);
+  return recentLogs.some(line => /Stream #\d+:\d+.*: Audio:/.test(line));
+}
+
 // ffmpeg.exec() is one long blocking call with no built-in progress. The
 // FFmpeg instance emits a 'progress' event (ratio 0..1) parsed from ffmpeg's
 // own output during exec. Route it through a module-level sink set just
@@ -240,7 +259,14 @@ export function buildFfmpegCommand(videoInputName: string, durationSec: number, 
 export async function runEncode(cmd: string[], onProgress?: (ratio: number) => void) {
   onEncodeProgress = onProgress ?? null;
   try {
-    await ffmpeg.exec(cmd);
+    // ffmpeg.wasm returns a non-zero exit code instead of throwing, so check it
+    // here. Without this, a failed stream-copy never reaches the re-encode
+    // fallback in encodePassthroughVideoSegment and surfaces later as FS error.
+    recentLogs.length = 0;
+    const code = await ffmpeg.exec(cmd);
+    if (code !== 0) {
+      throw new Error(`ffmpeg exited with code ${code}: ${recentLogs.slice(-3).join(' | ')}`);
+    }
   } finally {
     onEncodeProgress = null;
   }
