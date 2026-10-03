@@ -359,6 +359,8 @@ function VidoCutApp() {
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
+  // One-line description of what the running export is doing (visible on phones, where there is no console).
+  const [exportStatus, setExportStatus] = useState('');
   const [selectedVoiceoverId, setSelectedVoiceoverId] = useState<string | null>(null);
 
   type DraggingState = {
@@ -1123,6 +1125,7 @@ function VidoCutApp() {
     console.log("Starting export process (ffmpeg.wasm)...");
     setIsExporting(true);
     setExportProgress(0);
+    setExportStatus('');
     setIsPlaying(false);
     if (videoRef.current) videoRef.current.pause();
 
@@ -1304,6 +1307,18 @@ function VidoCutApp() {
           segments.push({ clip, localStart: segStart, durationSec: segDur, needsOverlay });
         }
       }
+      {
+        const layers = [
+          videoState.watermarkUrl ? 'logo' : '',
+          showSubtitles && videoState.subtitles.length > 0 ? `${videoState.subtitles.length} text` : '',
+          videoState.voiceovers.length > 0 ? `${videoState.voiceovers.length} voiceover` : '',
+        ].filter(Boolean);
+        setExportStatus(
+          `${videoState.clips.length} clip${videoState.clips.length === 1 ? '' : 's'}, ${canvas.width}x${canvas.height}` +
+          (layers.length ? `, with ${layers.join(' + ')}` : ', no extra layers') +
+          ` · ${segments.filter(s => s.needsOverlay).length === 0 ? 'fast copy where possible' : `${segments.filter(s => s.needsOverlay).length} of ${segments.length} segment(s) need re-encode`}`
+        );
+      }
       console.log(`Timeline split into ${segments.length} segment(s): ${segments.filter(s => !s.needsOverlay).length} passthrough, ${segments.filter(s => s.needsOverlay).length} need overlay.`);
 
       const writtenClipSources = new Set<string>();
@@ -1333,6 +1348,7 @@ function VidoCutApp() {
           const dims = await getVideoDimensions(seg.clip.url);
           const canStreamCopy = !!dims && dims.width === canvas.width && dims.height === canvas.height;
           console.log(`Segment ${segIdx + 1}/${segments.length}: ${seg.needsOverlay ? 'overlay' : 'passthrough'}, ${seg.durationSec.toFixed(1)}s, ${canStreamCopy ? 'stream-copy' : 're-encode'} trim`);
+          setExportStatus(prev => `${prev.split(' · ')[0]} · segment ${segIdx + 1}/${segments.length}: ${seg.needsOverlay ? 're-encoding with layers' : canStreamCopy ? 'fast copy' : 're-encoding (size differs)'}`);
           await encodePassthroughVideoSegment(srcName, sourceStart, seg.durationSec, FPS, canvas.width, canvas.height, trimmedName, canStreamCopy, seg.needsOverlay ? undefined : onSegProgress);
         } else {
           await encodePassthroughImageSegment(srcName, seg.durationSec, FPS, canvas.width, canvas.height, trimmedName, seg.needsOverlay ? undefined : onSegProgress);
@@ -1497,6 +1513,7 @@ function VidoCutApp() {
       await deleteFile('output.mp4');
 
       setExportProgress(100);
+      setExportStatus(prev => `${prev.split(' · ')[0]} · done`);
       console.log("Export complete.");
     } catch (err) {
       console.error("Export failed:", err);
@@ -2045,6 +2062,14 @@ function VidoCutApp() {
           />
         </div>
       </header>
+
+      {(isExporting || exportStatus) && exportStatus && (
+        <div className="px-3 md:px-6 py-1.5 text-[11px] font-mono text-slate-300 bg-black/40 border-b border-border flex items-center gap-2" role="status">
+          {isExporting && <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" />}
+          <span className="leading-tight">{exportStatus}</span>
+          <span className="ml-auto text-accent font-bold">{Math.round(exportProgress)}%</span>
+        </div>
+      )}
 
       {/* Hidden file uploader for adding extra tracks */}
       <input 
