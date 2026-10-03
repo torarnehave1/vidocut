@@ -309,14 +309,42 @@ function VidoCutApp() {
   // Pointer events (mouse, touch, pen) with capture: tap or drag on the ruler or
   // the playhead handle to scrub. touch-action:none on those elements stops the
   // browser from turning the drag into a timeline scroll.
+  // While scrubbing, a frame loop scrolls the timeline when the pointer is within
+  // 48px of its left/right edge, so a drag can reach the whole timeline.
+  const scrubStateRef = useRef<{ clientX: number; raf: number } | null>(null);
+  const stopScrub = () => {
+    if (scrubStateRef.current) cancelAnimationFrame(scrubStateRef.current.raf);
+    scrubStateRef.current = null;
+  };
+  const tickScrub = () => {
+    const st = scrubStateRef.current;
+    const el = timelineRef.current;
+    if (!st || !el) return;
+    const rect = el.getBoundingClientRect();
+    const edge = 48;
+    let dx = 0;
+    if (st.clientX > rect.right - edge) dx = Math.min(1, (st.clientX - (rect.right - edge)) / edge) * 14;
+    else if (st.clientX < rect.left + edge) dx = -Math.min(1, (rect.left + edge - st.clientX) / edge) * 14;
+    if (dx) {
+      el.scrollLeft += dx;
+      scrubToClientX(st.clientX);
+    }
+    st.raf = requestAnimationFrame(tickScrub);
+  };
   const scrubPointerHandlers = {
     onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => {
       e.currentTarget.setPointerCapture(e.pointerId);
       scrubToClientX(e.clientX);
+      stopScrub();
+      scrubStateRef.current = { clientX: e.clientX, raf: requestAnimationFrame(tickScrub) };
     },
     onPointerMove: (e: React.PointerEvent<HTMLDivElement>) => {
-      if (e.currentTarget.hasPointerCapture(e.pointerId)) scrubToClientX(e.clientX);
+      if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+      if (scrubStateRef.current) scrubStateRef.current.clientX = e.clientX;
+      scrubToClientX(e.clientX);
     },
+    onPointerUp: stopScrub,
+    onPointerCancel: stopScrub,
   };
 
   const [activeTab, setActiveTab] = useState<'trim' | 'voice' | 'subtitles' | 'watermark'>('trim');
@@ -588,6 +616,14 @@ function VidoCutApp() {
           videoRef.current.currentTime = clip.trimStart;
         }
         videoRef.current.play().catch(() => {});
+      } else {
+        // Scrubbing into a different clip remounts the element; a seek made
+        // before it loaded is lost, so apply the playhead position now.
+        const info = getClipAtTime(currentTime);
+        if (info && info.clip.id === id && isFinite(info.localTime) &&
+            Math.abs(videoRef.current.currentTime - info.localTime) > 0.05) {
+          videoRef.current.currentTime = info.localTime;
+        }
       }
     }
   };
@@ -989,13 +1025,15 @@ function VidoCutApp() {
     };
 
     if (draggingState) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
+      window.addEventListener('pointermove', handleMouseMove);
+      window.addEventListener('pointerup', handleMouseUp);
+      window.addEventListener('pointercancel', handleMouseUp);
     }
 
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('pointermove', handleMouseMove);
+      window.removeEventListener('pointerup', handleMouseUp);
+      window.removeEventListener('pointercancel', handleMouseUp);
     };
   }, [draggingState, zoom]);
 
@@ -1022,7 +1060,7 @@ function VidoCutApp() {
     if (timelineRef.current && totalDuration > 0) {
       const containerWidth = timelineRef.current.clientWidth || 800;
       // Calculate zoom so entire recording plus small buffer fits horizontally
-      const calculatedZoom = Math.max(1, Math.floor((containerWidth - 60) / (totalDuration + 2)));
+      const calculatedZoom = Math.max(1, Math.floor((containerWidth - 24) / (totalDuration + 0.5)));
       setZoom(calculatedZoom);
     } else {
       setZoom(10);
@@ -2313,7 +2351,7 @@ function VidoCutApp() {
                   <span className="text-[10px] font-bold text-slate-400 mr-1 hidden sm:inline">ZOOM</span>
                   <button 
                     onClick={() => setZoom(z => Math.max(1, Math.round(z / 1.3)))}
-                    className="max-md:hidden p-0.5 hover:bg-white/10 rounded text-slate-400 hover:text-white transition-colors"
+                    className="max-md:w-11 max-md:h-11 max-md:flex max-md:items-center max-md:justify-center p-0.5 hover:bg-white/10 rounded text-slate-400 hover:text-white transition-colors"
                     title="Zoom Out (Ctrl + Scroll Down)"
                   >
                     <ZoomOut className="w-3.5 h-3.5" />
@@ -2330,7 +2368,7 @@ function VidoCutApp() {
                   />
                   <button 
                     onClick={() => setZoom(z => Math.min(1000, Math.round(z * 1.3)))}
-                    className="max-md:hidden p-0.5 hover:bg-white/10 rounded text-slate-400 hover:text-white transition-colors"
+                    className="max-md:w-11 max-md:h-11 max-md:flex max-md:items-center max-md:justify-center p-0.5 hover:bg-white/10 rounded text-slate-400 hover:text-white transition-colors"
                     title="Zoom In (Ctrl + Scroll Up)"
                   >
                     <ZoomIn className="w-3.5 h-3.5" />
@@ -2389,7 +2427,7 @@ function VidoCutApp() {
                 {/* Left Column: Track Labels and Actions (fixed width) */}
                 <div className="w-32 md:w-48 bg-black/40 border-r border-border flex flex-col select-none shrink-0">
                 {/* Ruler Track spacer */}
-                <div className="h-8 border-b border-white/10 flex items-center justify-between px-3 bg-white/[0.02] shrink-0">
+                <div className="h-10 md:h-8 border-b border-white/10 flex items-center justify-between px-3 bg-white/[0.02] shrink-0">
                   <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold font-mono">Tracks</span>
                   <button 
                     onClick={() => addTrackFileInputRef.current?.click()}
@@ -2403,7 +2441,7 @@ function VidoCutApp() {
                 </div>
 
                 {/* Subtitle / Text Lane Label */}
-                <div className="h-12 border-b border-white/5 flex items-center px-3 justify-between bg-yellow-500/[0.01] shrink-0">
+                <div className="h-12 max-md:h-16 border-b border-white/5 flex items-center px-3 justify-between bg-yellow-500/[0.01] shrink-0">
                   <div className="flex items-center gap-2">
                     <Type className="w-3.5 h-3.5 text-yellow-500/80" />
                     <span className="text-xs font-bold text-slate-300 whitespace-nowrap">Text <span className="max-md:hidden">Layers</span></span>
@@ -2423,7 +2461,7 @@ function VidoCutApp() {
                   <div 
                     key={clip.id} 
                     className={cn(
-                      "h-12 border-b border-white/5 flex items-center justify-between px-3 transition-colors shrink-0",
+                      "h-12 max-md:h-16 border-b border-white/5 flex items-center justify-between px-3 transition-colors shrink-0",
                       selectedClipId === clip.id ? "bg-accent/5" : "bg-black/10"
                     )}
                   >
@@ -2525,7 +2563,7 @@ function VidoCutApp() {
                 </button>
 
                 {/* Voiceover Track Label */}
-                <div className="h-12 border-b border-white/5 flex items-center px-3 justify-between bg-purple-500/[0.01] shrink-0">
+                <div className="h-12 max-md:h-16 border-b border-white/5 flex items-center px-3 justify-between bg-purple-500/[0.01] shrink-0">
                   <div className="flex items-center gap-2">
                     <Mic className="w-3.5 h-3.5 text-purple-500/80" />
                     <span className="text-xs font-bold text-slate-300">Voiceovers</span>
@@ -2542,14 +2580,14 @@ function VidoCutApp() {
               >
                 {/* Timescale Track Width calculated dynamically */}
                 <div 
-                  className="relative flex flex-col min-h-full"
+                  className="relative flex flex-col min-h-full touch-none"
                   style={{ width: `${Math.max(600, (totalDuration + 5) * zoom)}px` }}
+                  {...scrubPointerHandlers}
                 >
                   
                   {/* Dynamic Ruler Row */}
                   <div 
-                    className="h-10 md:h-8 bg-black/45 border-b border-white/10 relative cursor-pointer touch-none"
-                    {...scrubPointerHandlers}
+                    className="h-10 md:h-8 bg-black/45 border-b border-white/10 relative cursor-pointer"
                   >
                     {(() => {
                       const getRulerConfig = (z: number) => {
@@ -2610,7 +2648,7 @@ function VidoCutApp() {
                       return (
                         <div 
                           key={idx} 
-                          className="absolute top-8 bottom-0 border-l border-white/5 pointer-events-none"
+                          className="absolute top-10 md:top-8 bottom-0 border-l border-white/5 pointer-events-none"
                           style={{ left: `${time * zoom}px` }}
                         />
                       );
@@ -2618,7 +2656,7 @@ function VidoCutApp() {
                   })()}
 
                   {/* Subtitles Track Lane */}
-                  <div className="h-12 border-b border-white/5 relative bg-yellow-500/[0.01]">
+                  <div className="h-12 max-md:h-16 border-b border-white/5 relative bg-yellow-500/[0.01]">
                     {videoState.subtitles.map(sub => {
                       const isSelected = selectedSubtitleId === sub.id;
                       const subDur = Math.max(0.2, sub.end - sub.start);
@@ -2626,7 +2664,7 @@ function VidoCutApp() {
                         <div
                           key={sub.id}
                           className={cn(
-                            "absolute top-1.5 bottom-1.5 bg-yellow-500/20 border border-yellow-500/50 rounded-lg px-2 text-[10px] text-yellow-300 font-bold flex items-center justify-between transition-colors select-none group cursor-grab active:cursor-grabbing overflow-hidden",
+                            "absolute top-1.5 bottom-1.5 bg-yellow-500/20 border border-yellow-500/50 rounded-lg px-2 text-[10px] text-yellow-300 font-bold flex items-center justify-between transition-colors select-none group cursor-grab active:cursor-grabbing touch-none overflow-hidden",
                             isSelected ? "ring-2 ring-yellow-400 z-10 bg-yellow-500/30 shadow-[0_0_10px_rgba(234,179,8,0.3)]" : "hover:bg-yellow-500/30"
                           )}
                           style={{ 
@@ -2638,7 +2676,7 @@ function VidoCutApp() {
                             setSelectedSubtitleId(sub.id);
                             setActiveTab('subtitles');
                           }}
-                          onMouseDown={(e) => {
+                          onPointerDown={(e) => {
                             e.stopPropagation();
                             setSelectedSubtitleId(sub.id);
                             setDraggingState({
@@ -2652,9 +2690,9 @@ function VidoCutApp() {
                         >
                           {/* Left Trim Handle */}
                           <div 
-                            className="absolute left-0 top-0 bottom-0 w-2.5 hover:bg-yellow-400 cursor-col-resize z-20 flex items-center justify-center rounded-l-lg transition-colors bg-yellow-500/40"
+                            className="absolute left-0 top-0 bottom-0 w-2.5 max-md:w-[min(24px,30%)] hover:bg-yellow-400 cursor-col-resize touch-none z-20 flex items-center justify-center rounded-l-lg transition-colors bg-yellow-500/40"
                             title="Drag to trim start"
-                            onMouseDown={(e) => {
+                            onPointerDown={(e) => {
                               e.stopPropagation();
                               setSelectedSubtitleId(sub.id);
                               setDraggingState({
@@ -2673,9 +2711,9 @@ function VidoCutApp() {
 
                           {/* Right Trim Handle */}
                           <div 
-                            className="absolute right-0 top-0 bottom-0 w-2.5 hover:bg-yellow-400 cursor-col-resize z-20 flex items-center justify-center rounded-r-lg transition-colors bg-yellow-500/40"
+                            className="absolute right-0 top-0 bottom-0 w-2.5 max-md:w-[min(24px,30%)] hover:bg-yellow-400 cursor-col-resize touch-none z-20 flex items-center justify-center rounded-r-lg transition-colors bg-yellow-500/40"
                             title="Drag to trim end"
-                            onMouseDown={(e) => {
+                            onPointerDown={(e) => {
                               e.stopPropagation();
                               setSelectedSubtitleId(sub.id);
                               setDraggingState({
@@ -2704,13 +2742,13 @@ function VidoCutApp() {
                       <div 
                         key={clip.id} 
                         className={cn(
-                          "h-12 border-b border-white/5 relative flex items-center transition-colors select-none",
+                          "h-12 max-md:h-16 border-b border-white/5 relative flex items-center transition-colors select-none",
                           isSelected ? "bg-accent/5" : ""
                         )}
                       >
                         <div
                           className={cn(
-                            "absolute top-1.5 bottom-1.5 rounded-xl border flex items-center justify-between group cursor-grab active:cursor-grabbing transition-all overflow-hidden",
+                            "absolute top-1.5 bottom-1.5 rounded-xl border flex items-center justify-between group cursor-grab active:cursor-grabbing touch-none transition-all overflow-hidden",
                             isSelected 
                               ? "bg-accent/20 border-accent shadow-[0_0_15px_rgba(59,130,246,0.3)] z-10" 
                               : "bg-white/5 border-white/10 hover:bg-white/10"
@@ -2723,7 +2761,7 @@ function VidoCutApp() {
                             e.stopPropagation();
                             setSelectedClipId(clip.id);
                           }}
-                          onMouseDown={(e) => {
+                          onPointerDown={(e) => {
                             e.stopPropagation();
                             setSelectedClipId(clip.id);
                             setDraggingState({
@@ -2736,9 +2774,9 @@ function VidoCutApp() {
                         >
                           {/* Left handle for trimStart */}
                           <div 
-                            className="absolute left-0 top-0 bottom-0 w-3 bg-accent/80 hover:bg-accent cursor-col-resize z-25 flex items-center justify-center rounded-l-xl transition-colors"
+                            className="absolute left-0 top-0 bottom-0 w-3 max-md:w-[min(24px,30%)] bg-accent/80 hover:bg-accent cursor-col-resize touch-none z-25 flex items-center justify-center rounded-l-xl transition-colors"
                             title="Drag to trim clip start"
-                            onMouseDown={(e) => {
+                            onPointerDown={(e) => {
                               e.stopPropagation();
                               setSelectedClipId(clip.id);
                               setDraggingState({
@@ -2775,9 +2813,9 @@ function VidoCutApp() {
 
                           {/* Right handle for trimEnd */}
                           <div 
-                            className="absolute right-0 top-0 bottom-0 w-3 bg-accent/80 hover:bg-accent cursor-col-resize z-25 flex items-center justify-center rounded-r-xl transition-colors"
+                            className="absolute right-0 top-0 bottom-0 w-3 max-md:w-[min(24px,30%)] bg-accent/80 hover:bg-accent cursor-col-resize touch-none z-25 flex items-center justify-center rounded-r-xl transition-colors"
                             title="Drag to resize/trim clip end"
-                            onMouseDown={(e) => {
+                            onPointerDown={(e) => {
                               e.stopPropagation();
                               setSelectedClipId(clip.id);
                               setDraggingState({
@@ -2800,7 +2838,7 @@ function VidoCutApp() {
                   <div className="h-10 border-b border-white/5 relative bg-white/[0.01]" />
 
                   {/* Voiceovers Track Lane */}
-                  <div className="h-12 border-b border-white/5 relative bg-purple-500/[0.01]">
+                  <div className="h-12 max-md:h-16 border-b border-white/5 relative bg-purple-500/[0.01]">
                     {videoState.voiceovers.map(v => {
                       const vGlobalStart = getVoiceoverGlobalTime(v);
                       if (vGlobalStart === -1) return null;
@@ -2823,7 +2861,7 @@ function VidoCutApp() {
                         <div
                           key={v.id}
                           className={cn(
-                            "absolute top-1.5 bottom-1.5 border rounded-lg flex items-center justify-between transition-all select-none group cursor-grab active:cursor-grabbing overflow-hidden",
+                            "absolute top-1.5 bottom-1.5 border rounded-lg flex items-center justify-between transition-all select-none group cursor-grab active:cursor-grabbing touch-none overflow-hidden",
                             colorStyle,
                             isSelected ? "ring-2 ring-purple-400 shadow-[0_0_12px_rgba(168,85,247,0.4)] z-10" : "hover:opacity-95"
                           )}
@@ -2836,7 +2874,7 @@ function VidoCutApp() {
                             setSelectedVoiceoverId(v.id);
                             setActiveTab('voice');
                           }}
-                          onMouseDown={(e) => {
+                          onPointerDown={(e) => {
                             e.stopPropagation();
                             setSelectedVoiceoverId(v.id);
                             setDraggingState({
@@ -2851,11 +2889,11 @@ function VidoCutApp() {
                           {/* Left Trim/Resize Handle */}
                           <div 
                             className={cn(
-                              "absolute left-0 top-0 bottom-0 w-2.5 cursor-col-resize z-20 flex items-center justify-center transition-colors rounded-l-lg",
+                              "absolute left-0 top-0 bottom-0 w-2.5 max-md:w-[min(24px,30%)] cursor-col-resize touch-none z-20 flex items-center justify-center transition-colors rounded-l-lg",
                               handleColor
                             )}
                             title="Drag to adjust sound clip start position"
-                            onMouseDown={(e) => {
+                            onPointerDown={(e) => {
                               e.stopPropagation();
                               setSelectedVoiceoverId(v.id);
                               setDraggingState({
@@ -2883,11 +2921,11 @@ function VidoCutApp() {
                           {/* Right Trim/Resize Handle */}
                           <div 
                             className={cn(
-                              "absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize z-20 flex items-center justify-center transition-colors rounded-r-lg",
+                              "absolute right-0 top-0 bottom-0 w-2.5 max-md:w-[min(24px,30%)] cursor-col-resize touch-none z-20 flex items-center justify-center transition-colors rounded-r-lg",
                               handleColor
                             )}
                             title="Drag to resize sound clip duration"
-                            onMouseDown={(e) => {
+                            onPointerDown={(e) => {
                               e.stopPropagation();
                               setSelectedVoiceoverId(v.id);
                               setDraggingState({
@@ -2918,7 +2956,6 @@ function VidoCutApp() {
                     <div
                       className="absolute top-0 -left-[21px] w-11 h-10 md:h-8 pointer-events-auto cursor-ew-resize touch-none"
                       aria-label="Drag playhead"
-                      {...scrubPointerHandlers}
                     />
                   </div>
 
