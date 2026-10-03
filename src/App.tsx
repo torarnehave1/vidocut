@@ -1127,7 +1127,12 @@ function VidoCutApp() {
     if (videoRef.current) videoRef.current.pause();
 
     const FPS = 30;
-    const MAX_DIM = 1280;
+    // A plain trim/join of 1080p footage can be stream-copied (seconds) only if
+    // the export canvas equals the source size. With a logo or text layer the
+    // affected segments are re-encoded in single-threaded WASM, which costs
+    // ~2.25x more at 1080p than at 720p, so those projects keep the 1280 cap.
+    const hasOverlays = !!videoState.watermarkUrl || (showSubtitles && videoState.subtitles.length > 0);
+    const MAX_DIM = hasOverlays ? 1280 : 1920;
     let w = videoRef.current?.videoWidth || 1280;
     let h = videoRef.current?.videoHeight || 720;
     if (w > MAX_DIM || h > MAX_DIM) {
