@@ -18,3 +18,15 @@ export const readStoredUser = (): AuthUser | null => {
     return null;
   }
 };
+
+/** The session token the magic-link login stored (same value other Vegvisr APIs take as X-API-Token). */
+export const readStoredToken = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem('user');
+    if (!raw) return null;
+    return JSON.parse(raw).emailVerificationToken || null;
+  } catch {
+    return null;
+  }
+};

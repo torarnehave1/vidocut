@@ -12,6 +12,7 @@ import { Subtitle, Voiceover, VideoState, VideoClip } from './types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { Login } from './components/Login';
+import { GooglePhotosImport } from './components/GooglePhotosImport';
 import { readStoredUser, type AuthUser } from './lib/auth';
 import { loadFFmpeg, writeFrame, writeAudioInput, hasAudioStream, deleteFile, buildFfmpegCommand, runEncode, readOutput, encodePassthroughVideoSegment, encodePassthroughImageSegment, concatSegments, encodeOverlayPass, type AudioInput } from './lib/ffmpegExport';
 
@@ -2283,9 +2284,9 @@ function VidoCutApp() {
               <motion.div 
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="max-w-md w-full glass p-12 rounded-3xl text-center space-y-8"
+                className="max-w-md w-full max-h-full overflow-y-auto glass p-5 md:p-12 rounded-3xl text-center space-y-4 md:space-y-8"
               >
-                <div className="w-20 h-20 rounded-2xl overflow-hidden flex items-center justify-center mx-auto bg-white/5 border border-white/10 shadow-xl">
+                <div className="max-md:hidden w-20 h-20 rounded-2xl overflow-hidden flex items-center justify-center mx-auto bg-white/5 border border-white/10 shadow-xl">
                   <img 
                     src="https://favicons.vegvisr.org/favicons/1782026007878-1-1782026040233-512x512.png" 
                     alt="VidoCut Logo" 
@@ -2312,6 +2313,7 @@ function VidoCutApp() {
                       hover:file:bg-accent-hover cursor-pointer"
                   />
                 </label>
+                <GooglePhotosImport onFiles={handleFilesArray} />
               </motion.div>
             )}
           </div>
@@ -3136,6 +3138,7 @@ function VidoCutApp() {
                         className="hidden"
                       />
                     </label>
+                  <GooglePhotosImport onFiles={handleFilesArray} className="mt-3" />
                   </div>
 
                 {selectedClip && (
